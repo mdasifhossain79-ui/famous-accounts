@@ -139,3 +139,5 @@ Payroll data is also included in the main backup (Settings & Backup).
 
 Forgot the password? Run `npm run reset-password`.
 Phone access on the same Wi-Fi: set `"lan": true` in db-config.json (a password is then required).
+#   f a m o u s - a c c o u n t s  
+ 
