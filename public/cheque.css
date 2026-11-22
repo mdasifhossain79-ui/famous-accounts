@@ -1,0 +1,14 @@
+/* Cheque Printing */
+.cqtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.cqtabs button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:8px;padding:8px 14px}
+.cqtabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.cq-prevbox{position:relative;width:100%;overflow:hidden;background:#fff;border:1px solid var(--line);border-radius:6px}
+.cq-prevbox .cq-f{cursor:move}
+#chqp{display:none}
+@media print{
+  body.chq-print>*:not(#chqp){display:none!important}
+  body.chq-print{background:#fff}
+  body.chq-print #chqp{display:block}
+  .cq-sheet{position:relative;overflow:hidden;break-after:page;page-break-after:always}
+  .cq-sheet:last-child{break-after:auto;page-break-after:auto}
+}

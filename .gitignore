@@ -1,0 +1,5 @@
+node_modules
+db-config.json
+backups
+server.log
+.desktop-icon-made

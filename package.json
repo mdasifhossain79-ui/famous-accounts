@@ -1,0 +1,14 @@
+{
+  "name": "famous-accounts",
+  "version": "1.0.0",
+  "description": "RMG accounts software: petty cash, bank transactions and automatic trial balance (Node.js + MySQL)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "reset-password": "node server.js --reset-password"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "mysql2": "^3.9.7"
+  }
+}

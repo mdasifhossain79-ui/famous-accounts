@@ -1,0 +1,14 @@
+{
+  "name": "Famous Accounts",
+  "short_name": "Famous Accounts",
+  "description": "RMG accounts: petty cash, bank, cheques, payroll certificates and trial balance",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#10131a",
+  "theme_color": "#4f46e5",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

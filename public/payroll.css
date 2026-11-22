@@ -1,0 +1,49 @@
+/* Certificate & Payslip module (scoped to #hr and #hm so accounting screens are untouched) */
+#hr,#hm{--tx:var(--text);--mu:var(--muted);--ln:var(--line);--pri:var(--accent);--red:var(--bad);--grn:var(--ok);--gold:#e0a63a;color:var(--text)}
+#hr .hrtabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+#hr .hrtabs button{background:var(--card);border:1px solid var(--line)}
+#hr .hrtabs button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+#hr .hrtitle{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}#hr .hrtitle h2{margin:0}
+#hr section{min-width:0}#hr .card{overflow-x:auto}
+#hr table,#hm table{width:100%;border-collapse:collapse}
+#hr th,#hm th{text-align:left;font-size:12px;text-transform:uppercase;color:var(--mu);padding:9px 10px;border-bottom:1px solid var(--ln);white-space:nowrap}
+#hr td,#hm td{padding:10px;border-bottom:1px solid var(--ln)}
+#hr button,#hm button{font:inherit;cursor:pointer;border:0;border-radius:8px;padding:7px 12px;background:var(--line);color:var(--text)}
+#hr .pri,#hm .pri{background:var(--accent);color:#fff;padding:10px 16px;font-weight:600;border-radius:10px;display:inline-block}
+#hr .del,#hm .del{color:var(--bad)}
+#hr input,#hr select,#hm input,#hm select{width:100%;padding:9px;margin-top:4px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font:inherit}
+#hr label,#hm label{font-size:12px;color:var(--mu);font-weight:600}
+#hr form,#hm form{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+#hr .act,#hm .act{grid-column:1/-1;display:flex;gap:10px;justify-content:flex-end}
+#hr .empty{color:var(--mu);padding:18px 0}
+#hr .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:14px}
+#hr .kpi{border-left:4px solid var(--accent);margin:0}#hr .kpi:nth-child(2){border-color:var(--ok)}#hr .kpi:nth-child(3){border-color:var(--bad)}#hr .kpi:nth-child(4){border-color:var(--gold)}
+#hr .kpi small{color:var(--mu);font-weight:600;text-transform:uppercase;font-size:12px}#hr .kpi b{display:block;font-size:24px;margin-top:6px}
+#hr .bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}#hr .bar input,#hr .bar select{width:auto;margin:0;flex:1;min-width:140px}
+#hr .hr{display:flex;gap:6px;margin-bottom:6px}#hr .hr .hp{width:80px}#hr .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:12px}
+#hr tr[hidden],#hm tr[hidden]{display:none}
+/* searchable dropdown */
+#hr .cb,#hm .cb{position:relative}
+#hr .cbl,#hm .cbl{position:absolute;left:0;right:0;top:100%;z-index:80;background:var(--card);border:1px solid var(--line);border-radius:10px;max-height:220px;overflow:auto;box-shadow:0 8px 24px #0003;margin-top:2px}
+#hr .cbl[hidden],#hm .cbl[hidden]{display:none}
+#hr .cbo,#hr .cbn,#hm .cbo,#hm .cbn{padding:9px 12px;font-size:14px}#hr .cbo,#hm .cbo{cursor:pointer}#hr .cbo:hover,#hm .cbo:hover{background:var(--bg)}#hr .cbn,#hm .cbn{color:var(--mu)}
+/* modal */
+#hm{position:fixed;inset:0;background:#0009;display:flex;z-index:70;overflow:auto;padding:20px}#hm>*{margin:auto}#hm[hidden]{display:none}
+#hm .box{background:var(--card);border-radius:16px;padding:24px;width:560px;max-width:100%}
+#hm .ln{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;font-size:14px}#hm .ln input{width:110px;margin:0}
+#hm .hr{display:flex;gap:6px;margin-bottom:6px}
+/* printed document */
+#hm .doc{background:#fff;color:#111;padding:40px;border-radius:6px;width:760px;max-width:100%;line-height:1.7}
+#hm .doc h2{text-align:center;margin:0}
+#hm .doc table{margin:14px 0}
+#hm .doc table td,#hm .doc table th{border:1px solid #ccc;color:#111}
+#hm .doc th{text-transform:none;font-size:inherit;color:#111;padding:4px 8px;text-align:left;white-space:normal}
+#hm .doc td{padding:3px 8px}
+#hm .doc .r{text-align:right}#hm .doc .ctr{text-align:center}#hm .doc+.doc{margin-top:16px}
+@media (max-width:800px){#hr form,#hm form,#hr .cols{grid-template-columns:1fr}#hm .doc{padding:18px}}
+@media print{
+  body.hr-print>*:not(#hm){display:none!important}
+  body.hr-print #hm{position:static;background:none;padding:0;display:block;overflow:visible}
+  body.hr-print #hm .noprint{display:none!important}
+  body.hr-print #hm .doc{width:100%;padding:0;break-after:page}body.hr-print #hm .doc:last-child{break-after:auto}
+}

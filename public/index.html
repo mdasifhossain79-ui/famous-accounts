@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Famous Accounts</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#4f46e5">
+<script>try{var t=localStorage.getItem("fa_theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="payroll.css">
+<link rel="stylesheet" href="cheque.css">
+<link rel="stylesheet" href="transfer.css">
+<link rel="stylesheet" href="bankanalysis.css">
+<link rel="stylesheet" href="print.css">
+</head>
+<body>
+<div id="login" class="overlay hidden">
+  <div class="card login-card">
+    <h2>Famous Accounts</h2>
+    <p class="muted">Enter your password to continue</p>
+    <input id="lpw" type="password" placeholder="Password" autocomplete="current-password">
+    <button class="btn" id="lbtn">Unlock</button>
+    <div id="lerr" class="err"></div>
+  </div>
+</div>
+<div id="app" class="hidden">
+  <aside id="side">
+    <div class="brand"><span id="brandName">Famous Accounts</span><small>RMG Accounts</small></div>
+    <nav id="nav"></nav>
+    <div class="themesw" id="themeSw"><button data-m="auto">Auto</button><button data-m="light">☀ Light</button><button data-m="dark">🌙 Dark</button></div>
+  </aside>
+  <main>
+    <button id="menuBtn" class="btn ghost menu">&#9776; Menu</button>
+    <div class="print-head" id="printHead"></div>
+    <div id="view"></div>
+  </main>
+</div>
+<div id="modal" class="overlay hidden"></div>
+<div id="hm" hidden></div>
+<div id="chqp"></div>
+<style id="cqpage">@page{size:A4;margin:0}</style>
+<div id="pv" hidden></div>
+<div id="toast"></div>
+<script src="app.js"></script>
+<script src="payroll.js"></script>
+<script src="cheque.js"></script>
+<script src="import.js"></script>
+<script src="recon.js"></script>
+<script src="bankanalysis.js"></script>
+<script src="bankops.js"></script>
+<script src="transfer.js"></script>
+<script>if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(function(){});</script>
+</body>
+</html>
