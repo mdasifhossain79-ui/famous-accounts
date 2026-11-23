@@ -45,6 +45,10 @@ const CHART = [
   ['5500', 'Bank Charges', 'expense'], ['5510', 'Bank Interest', 'expense'], ['5520', 'Miscellaneous Expenses', 'expense']
 ];
 
+const seedCounters = async c => {   // make sure every voucher type has a counter that is at least as high as the vouchers already saved
+  await c.query("INSERT IGNORE INTO voucher_counters (vtype,last_seq) VALUES ('CP',0),('CR',0),('BP',0),('BR',0),('CT',0),('JV',0)");
+  await c.query('UPDATE voucher_counters c SET last_seq=GREATEST(last_seq, COALESCE((SELECT MAX(v.seq) FROM vouchers v WHERE v.vtype=c.vtype),0))');
+};
 async function init() {
   const c = await mysql.createConnection({ host: cfg.host, port: cfg.port, user: cfg.user, password: cfg.password });
   await c.query('CREATE DATABASE IF NOT EXISTS `' + cfg.name + '` CHARACTER SET utf8mb4');
@@ -64,6 +68,8 @@ async function init() {
     debit DECIMAL(14,2) NOT NULL DEFAULT 0, credit DECIMAL(14,2) NOT NULL DEFAULT 0, cleared_on DATE NULL,
     INDEX idx_v (voucher_id), INDEX idx_a (account_id), FOREIGN KEY (voucher_id) REFERENCES vouchers(id) ON DELETE CASCADE)`);
   await pool.query(`CREATE TABLE IF NOT EXISTS settings (skey VARCHAR(50) PRIMARY KEY, sval TEXT)`);
+  await pool.query('CREATE TABLE IF NOT EXISTS voucher_counters (vtype CHAR(2) PRIMARY KEY, last_seq INT NOT NULL)');   // highest number ever used per voucher type, so a deleted voucher number is never handed out again
+  await seedCounters(pool);
 
   const D = 'DECIMAL(12,2) DEFAULT 0';
   for (const q of [
@@ -338,13 +344,17 @@ async function saveVoucher(id, b, req, ext) {   // ext: an open transaction conn
       if (!old) throw bad('Voucher not found');
       if (old.vtype !== b.vtype) throw bad('Voucher type cannot be changed. Delete and create a new one.');
       await conn.query('UPDATE vouchers SET ? WHERE id=?', [f, id]);
-      await conn.query('DELETE FROM voucher_lines WHERE voucher_id=?', [id]);
+      // Lines that did not change (same account and amount) are left exactly as they are, so a bank line keeps its "cleared" date when only the narration, party or date is edited.
+      const [oldLines] = await conn.query('SELECT id,account_id,debit,credit FROM voucher_lines WHERE voucher_id=? ORDER BY id', [id]), spare = [...oldLines];
+      for (let k = lines.length - 1; k >= 0; k--) { const i = spare.findIndex(o => o.account_id === lines[k].account_id && r2(o.debit) === lines[k].debit && r2(o.credit) === lines[k].credit); if (i >= 0) { spare.splice(i, 1); lines.splice(k, 1); } }
+      if (spare.length) await conn.query('DELETE FROM voucher_lines WHERE id IN (?)', [spare.map(o => o.id)]);
     } else {
-      const [[{ s }]] = await conn.query('SELECT COALESCE(MAX(seq),0)+1 s FROM vouchers WHERE vtype=?', [b.vtype]);
+      await conn.query('UPDATE voucher_counters SET last_seq=LAST_INSERT_ID(last_seq+1) WHERE vtype=?', [b.vtype]);   // row lock: two people saving together get different numbers
+      const [[{ s }]] = await conn.query('SELECT LAST_INSERT_ID() s');
       const [r] = await conn.query('INSERT INTO vouchers SET ?', [{ ...f, vtype: b.vtype, seq: s, voucher_no: b.vtype + '-' + String(s).padStart(5, '0') }]);
       id = r.insertId;
     }
-    await conn.query('INSERT INTO voucher_lines (voucher_id,account_id,debit,credit) VALUES ?', [lines.map(l => [id, l.account_id, l.debit, l.credit])]);
+    if (lines.length) await conn.query('INSERT INTO voucher_lines (voucher_id,account_id,debit,credit) VALUES ?', [lines.map(l => [id, l.account_id, l.debit, l.credit])]);
     if (f.party) await upsertParty(conn, f.party, kindOf(b.vtype));
     if (!ext) await conn.commit();
     return id;
@@ -356,8 +366,10 @@ app.get('/api/vouchers', h(async (req, res) => {
   if (isDate(to)) { w.push('v.vdate<=?'); p.push(to); }
   if (VTYPES.includes(type)) { w.push('v.vtype=?'); p.push(type); }
   if (q) { w.push('(v.narration LIKE ? OR v.party LIKE ? OR v.voucher_no LIKE ? OR v.ref LIKE ? OR v.cheque_no LIKE ?)'); const l = '%' + q + '%'; p.push(l, l, l, l, l); }
-  const [r] = await pool.query(`SELECT v.*, (SELECT COALESCE(SUM(debit),0) FROM voucher_lines WHERE voucher_id=v.id) amount FROM vouchers v WHERE ${w.join(' AND ')} ORDER BY v.vdate DESC, v.id DESC LIMIT 1000`, p);
-  res.json(r);
+  const lim = Math.min(Math.max(parseInt(req.query.limit) || 1000, 1), 5000), off = Math.max(parseInt(req.query.offset) || 0, 0);
+  const [[{ n }]] = await pool.query(`SELECT COUNT(*) n FROM vouchers v WHERE ${w.join(' AND ')}`, p);
+  const [r] = await pool.query(`SELECT v.*, (SELECT COALESCE(SUM(debit),0) FROM voucher_lines WHERE voucher_id=v.id) amount FROM vouchers v WHERE ${w.join(' AND ')} ORDER BY v.vdate DESC, v.id DESC LIMIT ? OFFSET ?`, [...p, lim, off]);
+  res.set('X-Total-Count', String(n)); res.json(r);
 }));
 app.get('/api/vouchers/:id', h(async (req, res) => {
   const [[v]] = await pool.query('SELECT * FROM vouchers WHERE id=?', [+req.params.id]);
@@ -488,6 +500,85 @@ app.get('/api/dashboard', h(async (req, res) => {
   res.json({ cash, banks, month_expense: r2(top.reduce((s, x) => s + Number(x.amount), 0)), top_expenses: top, recent, balanced: tb.balanced, difference: tb.difference, in_transit: await TR.inTransit(), backup: await backupHealth(), recurring_due: (await pool.query('SELECT COUNT(*) n FROM recurring_vouchers WHERE active=1 AND next_due<=?', [t]))[0][0].n, imprest_limit: Number(await getSetting('imprest_limit')) || 0, locked_through: (await getSetting('lock_through')) || '' });
 }));
 
+
+// ---------- dashboard extras (read-only): period totals, daily trend, monthly chart, things that need attention ----------
+const addDays = (d, n) => { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+async function cashBankAt(date) {   // balance of every petty cash / bank account at the end of a day
+  const [accs] = await pool.query(`SELECT a.id, a.name, a.kind, a.active, a.opening_balance, a.opening_side,
+      COALESCE(SUM(CASE WHEN v.vdate <= ? THEN l.debit - l.credit END), 0) mv
+    FROM accounts a LEFT JOIN voucher_lines l ON l.account_id = a.id LEFT JOIN vouchers v ON v.id = l.voucher_id
+    WHERE a.kind IN ('cash','bank') GROUP BY a.id ORDER BY a.code`, [date]);
+  return accs.map(a => ({ id: a.id, name: a.name, kind: a.kind, active: a.active, balance: r2(signedOpening(a) + Number(a.mv)) }));
+}
+const sumKind = (list, k) => r2(list.filter(a => a.kind === k && (k === 'cash' || a.active)).reduce((s, a) => s + a.balance, 0));
+async function typeTotal(type, from, to) {
+  const [[r]] = await pool.query('SELECT COALESCE(SUM(l.debit),0) d, COALESCE(SUM(l.credit),0) c FROM voucher_lines l JOIN vouchers v ON v.id=l.voucher_id JOIN accounts a ON a.id=l.account_id WHERE a.type=? AND v.vdate BETWEEN ? AND ?', [type, from, to]);
+  return r2(type === 'expense' ? r.d - r.c : r.c - r.d);
+}
+app.get('/api/dashboard/extra', h(async (req, res) => {
+  const t = today(), to = isDate(req.query.to) ? req.query.to : t, from = isDate(req.query.from) ? req.query.from : to.slice(0, 8) + '01';
+  if (from > to) throw bad('The start date is after the end date');
+  const days = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1;
+  if (days > 732) throw bad('Choose a period of at most 2 years');
+  const pto = isDate(req.query.pto) ? req.query.pto : addDays(from, -1), pfrom = isDate(req.query.pfrom) ? req.query.pfrom : addDays(pto, -(days - 1));
+
+  // balances at the end of the period and at the end of the previous period
+  const endBal = await cashBankAt(to), prevBal = await cashBankAt(pto), startBal = await cashBankAt(addDays(from, -1));
+  const cash = endBal.filter(a => a.kind === 'cash'), banks = endBal.filter(a => a.kind === 'bank' && a.active);
+
+  // day-by-day petty cash and bank balance
+  const [daily] = await pool.query(`SELECT v.vdate d, a.kind k, SUM(l.debit - l.credit) s FROM voucher_lines l JOIN vouchers v ON v.id=l.voucher_id JOIN accounts a ON a.id=l.account_id
+    WHERE (a.kind='cash' OR (a.kind='bank' AND a.active=1)) AND v.vdate BETWEEN ? AND ? GROUP BY v.vdate, a.kind`, [from, to]);
+  const mv = {}; for (const r of daily) mv[r.d + '|' + r.k] = Number(r.s);
+  let c = sumKind(startBal, 'cash'), b = sumKind(startBal, 'bank'); const trend = { dates: [], cash: [], bank: [] };
+  for (let i = 0; i < days; i++) {
+    const d = addDays(from, i); c = r2(c + (mv[d + '|cash'] || 0)); b = r2(b + (mv[d + '|bank'] || 0));
+    trend.dates.push(d); trend.cash.push(c); trend.bank.push(b);
+  }
+
+  // top expenses in the period (with account id so the screen can open the ledger)
+  const [top] = await pool.query(`SELECT a.id, a.name, SUM(l.debit - l.credit) amount FROM voucher_lines l JOIN vouchers v ON v.id=l.voucher_id JOIN accounts a ON a.id=l.account_id
+    WHERE a.type='expense' AND v.vdate BETWEEN ? AND ? GROUP BY a.id HAVING amount<>0 ORDER BY amount DESC LIMIT 8`, [from, to]);
+
+  // income and expense for each month of a fiscal year
+  const fy = isDate(req.query.fy) ? req.query.fy : t.slice(0, 4) + '-01-01', fy0 = new Date(fy + 'T00:00:00Z'), months = [];
+  for (let i = 0; i < 12; i++) { const m = new Date(Date.UTC(fy0.getUTCFullYear(), fy0.getUTCMonth() + i, 1)); months.push(m.toISOString().slice(0, 7)); }
+  const fyEnd = new Date(Date.UTC(fy0.getUTCFullYear(), fy0.getUTCMonth() + 12, 0)).toISOString().slice(0, 10);
+  const [mrows] = await pool.query(`SELECT DATE_FORMAT(v.vdate,'%Y-%m') ym, a.type, SUM(l.debit) d, SUM(l.credit) c FROM voucher_lines l JOIN vouchers v ON v.id=l.voucher_id JOIN accounts a ON a.id=l.account_id
+    WHERE a.type IN ('income','expense') AND v.vdate BETWEEN ? AND ? GROUP BY ym, a.type`, [fy, fyEnd]);
+  const monthly = months.map(ym => {
+    const inc = mrows.find(r => r.ym === ym && r.type === 'income'), exp = mrows.find(r => r.ym === ym && r.type === 'expense');
+    return { month: ym, income: inc ? r2(inc.c - inc.d) : 0, expense: exp ? r2(exp.d - exp.c) : 0 };
+  });
+
+  // things that need attention
+  const stale6 = addDays(t, -183), d7 = addDays(t, -7), d30 = addDays(t, -30);
+  const [[chq]] = await pool.query("SELECT COUNT(*) n, COALESCE(SUM(amount),0) a, COALESCE(SUM(cdate < ?),0) stale, COALESCE(SUM(cdate > ?),0) post FROM cheques WHERE status IN ('issued','printed')", [stale6, t]);
+  const [[tr]] = await pool.query("SELECT COUNT(*) n, COALESCE(SUM(amount),0) a FROM transfers WHERE status='in_transit' AND sent_date < ?", [d7]);
+  const unclearedQ = d => pool.query("SELECT COUNT(*) n, COALESCE(SUM(l.debit + l.credit),0) a FROM voucher_lines l JOIN vouchers v ON v.id=l.voucher_id JOIN accounts a ON a.id=l.account_id WHERE a.kind='bank' AND a.active=1 AND l.cleared_on IS NULL AND v.vdate <= ?", [d]);
+  const [[unc30]] = await unclearedQ(d30);
+  // month-end checklist (last calendar month)
+  const prevEnd = addDays(t.slice(0, 8) + '01', -1), lt = (await getSetting('lock_through')) || '';
+  const [[rec]] = await pool.query('SELECT COUNT(*) n FROM recurring_vouchers WHERE active=1 AND next_due<=?', [t]);
+  const [[uncPrev]] = await unclearedQ(prevEnd);
+  const tb = await trialBalance('1900-01-01', t, true);
+  const checklist = [
+    { key: 'recurring', label: 'Post recurring vouchers that are due', done: rec.n === 0, detail: rec.n ? rec.n + ' waiting' : 'None waiting', go: 'recurring' },
+    { key: 'bank', label: 'Clear bank entries up to ' + prevEnd, done: uncPrev.n === 0, detail: uncPrev.n ? uncPrev.n + ' not cleared (৳ ' + r2(uncPrev.a).toLocaleString('en-IN') + ')' : 'All cleared', go: 'recon' },
+    { key: 'tb', label: 'Trial balance is balanced', done: tb.balanced, detail: tb.balanced ? 'Balanced' : 'Difference ' + tb.difference, go: 'tb' },
+    { key: 'close', label: 'Close the month ' + prevEnd.slice(0, 7), done: !!lt && lt >= prevEnd, detail: lt ? 'Closed up to ' + lt : 'No month closed yet', go: 'settings' }
+  ];
+  res.json({
+    from, to, pfrom, pto, fy, days,
+    cash, banks, cash_total: sumKind(endBal, 'cash'), bank_total: sumKind(endBal, 'bank'),
+    cash_prev: sumKind(prevBal, 'cash'), bank_prev: sumKind(prevBal, 'bank'),
+    expense: { cur: await typeTotal('expense', from, to), prev: await typeTotal('expense', pfrom, pto) },
+    income: { cur: await typeTotal('income', from, to), prev: await typeTotal('income', pfrom, pto) },
+    top_expenses: top.map(x => ({ id: x.id, name: x.name, amount: r2(x.amount) })), trend, monthly,
+    attention: { cheques_open: { count: chq.n, amount: r2(chq.a), stale: Number(chq.stale), post_dated: Number(chq.post) }, transit_stale: { count: tr.n, amount: r2(tr.a) }, uncleared: { count: unc30.n, amount: r2(unc30.a) } },
+    checklist, prev_month_end: prevEnd
+  });
+}));
 
 // ---------- Certificate & Payslip (payroll) ----------
 const HR = {
@@ -753,6 +844,7 @@ app.post('/api/restore', h(async (req, res) => {
     await conn.beginTransaction();
     await conn.query('SET FOREIGN_KEY_CHECKS=0');
     for (const t of ['voucher_lines', 'vouchers', 'accounts']) await conn.query(`DELETE FROM ${t}`);
+    await conn.query('DELETE FROM voucher_counters');   // numbering restarts from the restored vouchers
     await conn.query("DELETE FROM settings WHERE skey NOT IN ('pw_hash','lock_hash')");
     for (const t of [...HRT].reverse()) if (Array.isArray(tb['hr_' + t])) await conn.query(`DELETE FROM hr_${t}`);
     for (const t of CQT) if (Array.isArray(tb[t])) await conn.query(`DELETE FROM ${t}`);
@@ -766,6 +858,7 @@ app.post('/api/restore', h(async (req, res) => {
         await conn.query(`INSERT INTO ${t} (${COLS[t].join(',')}) VALUES ?`, [rows.slice(i, i + 500).map(r => COLS[t].map(c => (r[c] === undefined ? null : r[c])))]);
       }
     }
+    await seedCounters(conn);
     await conn.query('SET FOREIGN_KEY_CHECKS=1');
     await conn.commit(); res.json({ ok: true, vouchers: tb.vouchers.length });
   } catch (e) { await conn.rollback(); throw e; } finally { conn.release(); }
@@ -823,4 +916,9 @@ app.post('/api/backup/run', h(async (req, res) => { const r = await runBackup(tr
     console.log(`Famous Accounts is running: http://localhost:${cfg.webPort}`);
     if (cfg.lan) for (const l of Object.values(os.networkInterfaces()).flat()) if (l.family === 'IPv4' && !l.internal) console.log(`On your phone: http://${l.address}:${cfg.webPort}`);
   });
-})().catch(e => { console.error('Could not start:', e.message); console.error('Check that MySQL is running and the user/password in db-config.json are correct.'); process.exit(1); });
+})().catch(e => {
+  console.error('Could not start:', e.message);
+  if (e.code === 'ER_ACCESS_DENIED_ERROR') console.error('MySQL refused the login. Create a file named db-config.json in this folder (copy db-config.example.json) and put your MySQL user name and password in it.');
+  else console.error('Check that MySQL is running and the user/password in db-config.json are correct.');
+  process.exit(1);
+});

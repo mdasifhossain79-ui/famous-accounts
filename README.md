@@ -139,5 +139,16 @@ Payroll data is also included in the main backup (Settings & Backup).
 
 Forgot the password? Run `npm run reset-password`.
 Phone access on the same Wi-Fi: set `"lan": true` in db-config.json (a password is then required).
-#   f a m o u s - a c c o u n t s  
+#   f a m o u s - a c c o u n t s 
  
+ 
+
+## Database login (db-config.json)
+The program no longer has a MySQL password written inside it. Create a file named `db-config.json` in this folder (copy `db-config.example.json`) and put your own MySQL user name and password in it. This file is never uploaded to GitHub. If it is missing or wrong, the server window says "MySQL refused the login".
+
+## Part 1 safety fixes (23 Nov 2026)
+- The MySQL password was removed from `server.js` and `setup-mysql-user.sql`.
+- Editing a voucher keeps lines that did not change, so a bank line keeps its "cleared" date. If you change the amount or account of a line, that line starts again as not cleared.
+- Voucher numbers are never reused: a counter per voucher type remembers the highest number used, even if that voucher is deleted. Two people saving at the same moment get different numbers.
+- All Vouchers shows 200 per page with Newer / Older buttons and the total count.
+- Not changed yet: transfer numbers (TR-) still use the old method, and vouchers can still be deleted (Part 2 replaces delete with reverse).

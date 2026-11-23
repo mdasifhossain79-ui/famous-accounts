@@ -14,6 +14,7 @@
 <link rel="stylesheet" href="cheque.css">
 <link rel="stylesheet" href="transfer.css">
 <link rel="stylesheet" href="bankanalysis.css">
+<link rel="stylesheet" href="dashboard.css">
 <link rel="stylesheet" href="print.css">
 </head>
 <body>
@@ -28,7 +29,8 @@
 </div>
 <div id="app" class="hidden">
   <aside id="side">
-    <div class="brand"><span id="brandName">Famous Accounts</span><small>RMG Accounts</small></div>
+    <div class="sidetop"><div class="brand"><span id="brandName">Famous Accounts</span><small>RMG Accounts</small></div><button id="railBtn" class="railbtn" type="button" title="Collapse menu">«</button></div>
+    <div class="navsearch"><input id="navq" type="search" placeholder="Search menu…  ( / )" autocomplete="off" aria-label="Search menu"></div>
     <nav id="nav"></nav>
     <div class="themesw" id="themeSw"><button data-m="auto">Auto</button><button data-m="light">☀ Light</button><button data-m="dark">🌙 Dark</button></div>
   </aside>
@@ -52,6 +54,7 @@
 <script src="bankanalysis.js"></script>
 <script src="bankops.js"></script>
 <script src="transfer.js"></script>
+<script src="dashboard.js"></script>
 <script>if("serviceWorker" in navigator)navigator.serviceWorker.register("/sw.js").catch(function(){});</script>
 </body>
 </html>

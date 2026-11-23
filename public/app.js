@@ -363,15 +363,68 @@ function editParty(id) {
 const head = (title, period) => { $('#printHead').innerHTML = `<h2>${esc(SET.company_name)}</h2><div>${esc(title)}${period ? ' · ' + esc(period) : ''}</div>`; };
 
 // ---------- navigation ----------
-const NAV = [['dashboard', 'Dashboard'], ['sep', 'Transactions'], ['voucher', 'New Voucher'], ['vouchers', 'All Vouchers'], ['xfer', 'Inter-Account Transfer'], ['xfers', 'Transfer Register'], ['recurring', 'Recurring Vouchers'], ['chq', 'Cheque Printing'], ['parties', 'Party List'], ['sep', 'Books'], ['cashbook', 'Petty Cash Book'], ['daily', 'Daily Cash Summary'], ['bankbook', 'Bank Book'], ['ledger', 'Ledger'], ['sep', 'Reports'], ['tb', 'Trial Balance'], ['recon', 'Bank Reconciliation'], ['forecast', 'Cash Forecast'], ['sep', 'HR'], ['payroll', 'Certificate & Payslip'], ['sep', 'Setup'], ['coa', 'Chart of Accounts'], ['settings', 'Settings & Backup']];
-function buildNav() {
-  $('#nav').innerHTML = NAV.map(([k, l]) => k === 'sep' ? `<div class="sep">${l}</div>` : `<button data-v="${k}">${l}</button>`).join('');
-  $('#nav').onclick = e => { const b = e.target.closest('button'); if (b) { go(b.dataset.v); $('#side').classList.remove('open'); } };
+// Sidebar: collapsible groups (one open at a time), menu search, icon-only mode. Only the look of the menu changes; every screen is the same.
+const NAV = [
+  { v: 'dashboard', l: 'Dashboard', i: '🏠' },
+  { g: 'Transactions', i: '🧾', items: [['voucher', 'New Voucher', '➕'], ['vouchers', 'All Vouchers', '📄'], ['xfer', 'Inter-Account Transfer', '🔁'], ['xfers', 'Transfer Register', '📋'], ['recurring', 'Recurring Vouchers', '⏰'], ['chq', 'Cheque Printing', '🖨️'], ['parties', 'Party List', '👥']] },
+  { g: 'Books', i: '📒', items: [['cashbook', 'Petty Cash Book', '💵'], ['daily', 'Daily Cash Summary', '🗓️'], ['bankbook', 'Bank Book', '🏦'], ['ledger', 'Ledger', '📚']] },
+  { g: 'Reports', i: '📊', items: [['tb', 'Trial Balance', '⚖️'], ['recon', 'Bank Reconciliation', '✅'], ['forecast', 'Cash Forecast', '📈']] },
+  { v: 'payroll', l: 'Certificate & Payslip', i: '🎓' },
+  { g: 'Setup', i: '⚙️', items: [['coa', 'Chart of Accounts', '🗂️'], ['settings', 'Settings & Backup', '🛠️']] }
+];
+const navLs = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } } };
+const navBtn = (v, l, i) => `<button data-v="${v}" title="${esc(l)}"><span class="ni">${i}</span><span class="nl">${esc(l)}</span></button>`;
+function navOpen(g) {   // g = a group element, or null to close all
+  document.querySelectorAll('#nav .ng').forEach(x => { const on = x === g; x.classList.toggle('open', on); x.querySelector('.gh').setAttribute('aria-expanded', on ? 'true' : 'false'); });
+  navLs.set('fa_nav_grp', g ? g.dataset.g : '');
 }
-const VIEWS = { recurring: a => window.vRecurring(a), forecast: a => window.vForecast(a), dashboard: vDashboard, voucher: vVoucher, vouchers: vVouchers, cashbook: () => vBook('cash'), daily: vDaily, bankbook: () => vBook('bank'), ledger: () => vBook('any'), tb: vTB, recon: () => window.vRecon(), chq: () => window.vCheque(), xfer: a => window.vTransfer(a), xfers: a => window.vTransfers(a), parties: vParties, payroll: vPayroll, coa: vCOA, settings: vSettings };
+function navReveal(name) {   // keep the group of the current screen highlighted, and open it
+  const b = document.querySelector('#nav button[data-v="' + name + '"]'), g = b ? b.closest('.ng') : null;
+  document.querySelectorAll('#nav .ng').forEach(x => x.classList.toggle('has-on', x === g));
+  if (g && !$('#nav').classList.contains('searching')) navOpen(g);
+}
+function navFilter(q) {
+  q = q.trim().toLowerCase(); const nav = $('#nav');
+  nav.classList.toggle('searching', !!q);
+  nav.querySelectorAll('button').forEach(b => b.classList.toggle('nomatch', !!q && !b.textContent.toLowerCase().includes(q)));
+  nav.querySelectorAll('.ng').forEach(g => g.classList.toggle('nomatch', !!q && !g.querySelector('button:not(.nomatch)')));
+  $('#navNone').hidden = !(q && !nav.querySelector('button:not(.nomatch)'));
+}
+function navRail(on) {
+  $('#side').classList.toggle('rail', on); navLs.set('fa_nav_rail', on ? '1' : '0');
+  $('#railBtn').textContent = on ? '»' : '«'; $('#railBtn').title = on ? 'Expand menu' : 'Collapse menu';
+}
+function buildNav() {
+  $('#nav').innerHTML = NAV.map(n => n.g
+    ? `<div class="ng" data-g="${esc(n.g)}"><div class="gh" role="button" tabindex="0" aria-expanded="false"><span class="ni">${n.i}</span><span class="nl">${esc(n.g)}</span><span class="chev">›</span></div><div class="gb"><div class="gi">${n.items.map(x => navBtn(...x)).join('')}</div></div></div>`
+    : navBtn(n.v, n.l, n.i)).join('') + '<div id="navNone" class="navnone" hidden>No menu item found</div>';
+  const toggle = h => { const g = h.closest('.ng'); navOpen(g.classList.contains('open') ? null : g); };
+  $('#nav').onclick = e => {
+    const h = e.target.closest('.gh'); if (h) return toggle(h);
+    const b = e.target.closest('button'); if (b) { go(b.dataset.v); $('#side').classList.remove('open'); }
+  };
+  $('#nav').onkeydown = e => { const h = e.target.closest('.gh'); if (h && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(h); } };
+  const q = $('#navq');
+  q.oninput = () => navFilter(q.value);
+  q.onkeydown = e => {
+    if (e.key === 'Escape') { q.value = ''; navFilter(''); q.blur(); }
+    else if (e.key === 'Enter') { const b = $('#nav button:not(.nomatch)'); if (b) { go(b.dataset.v); q.value = ''; navFilter(''); q.blur(); $('#side').classList.remove('open'); } }
+  };
+  $('#railBtn').onclick = () => navRail(!$('#side').classList.contains('rail'));
+  document.addEventListener('keydown', e => {   // "/" or Ctrl+K jumps to the menu search
+    const t = e.target, typing = t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
+    if ((e.key === '/' && !typing && !e.ctrlKey && !e.metaKey) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+      e.preventDefault(); if ($('#side').classList.contains('rail')) navRail(false); $('#side').classList.add('open'); q.focus(); q.select();
+    }
+  });
+  navRail(navLs.get('fa_nav_rail') === '1');
+  const saved = navLs.get('fa_nav_grp'); navOpen(saved ? document.querySelector('#nav .ng[data-g="' + saved + '"]') : null);
+}
+const VIEWS = { dashboard: a => (window.vDash || vDashboard)(a), recurring: a => window.vRecurring(a), forecast: a => window.vForecast(a), voucher: vVoucher, vouchers: vVouchers, cashbook: () => vBook('cash'), daily: vDaily, bankbook: () => vBook('bank'), ledger: () => vBook('any'), tb: vTB, recon: () => window.vRecon(), chq: () => window.vCheque(), xfer: a => window.vTransfer(a), xfers: a => window.vTransfers(a), parties: vParties, payroll: vPayroll, coa: vCOA, settings: vSettings };
 async function go(name, arg) {
   location.hash = name; cbHide();
   document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.v === name));
+  navReveal(name);
   try { await loadAcc(); await VIEWS[name](arg); } catch (e) { if (e.message !== 'Locked') $('#view').innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
 }
 
@@ -493,7 +546,8 @@ function renderVoucher() {
 }
 
 // ---------- vouchers list / view ----------
-let VF = { from: '', to: '', type: '', q: '' };
+let VF = { from: '', to: '', type: '', q: '' }, VPG = 0;
+const VPS = 200;   // vouchers shown per page
 async function vVouchers() {
   head('Vouchers');
   $('#view').innerHTML = `<h2>All vouchers</h2><div class="card"><div class="row noprint">
@@ -501,13 +555,19 @@ async function vVouchers() {
     <div><label>Type</label><select id="f3"><option value="">All</option>${Object.entries(VT).map(([k, l]) => `<option value="${k}" ${VF.type === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="grow"><label>Search</label><input id="f4" value="${esc(VF.q)}" placeholder="Narration, party, cheque, no."></div>
     <button class="btn" id="fgo">Show</button><button class="btn ghost" id="fpr">🖨 Print preview</button></div><div id="vl"></div></div>`;
-  const run = async () => {
+  const run = async keep => {
+    if (!keep) VPG = 0;
     VF = { from: $('#f1').value, to: $('#f2').value, type: $('#f3').value, q: $('#f4').value };
-    const p = new URLSearchParams(VF), rows = await api('/api/vouchers?' + p);
-    $('#vl').innerHTML = `<div class="wrap"><table class="tbl"><thead><tr><th>Date</th><th>No.</th><th>Type</th><th>Party</th><th>Narration</th><th class="n">Amount</th></tr></thead><tbody>${rows.map(v => `<tr class="click" onclick="showVoucher(${v.id})"><td>${esc(v.vdate)}</td><td>${esc(v.voucher_no)}</td><td>${VT[v.vtype]}</td><td>${esc(v.party)}</td><td>${esc(v.narration)}</td><td class="n">${fmt(v.amount)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No vouchers found</td></tr>'}</tbody></table></div>`;
+    const p = new URLSearchParams({ ...VF, limit: VPS, offset: VPG * VPS }), resp = await fetch('/api/vouchers?' + p, { headers: LOCKPW ? { 'X-Lock-Password': LOCKPW } : {} });
+    if (resp.status === 401) { showLogin(); return; }
+    const rows = await resp.json().catch(() => []); if (!resp.ok) { $('#vl').innerHTML = `<p class="err">${esc(rows.error || 'Could not load the vouchers')}</p>`; return; }
+    const total = +resp.headers.get('X-Total-Count') || rows.length, pages = Math.max(1, Math.ceil(total / VPS)); if (VPG >= pages) { VPG = pages - 1; return run(true); }
+    $('#vl').innerHTML = `<div class="wrap"><table class="tbl"><thead><tr><th>Date</th><th>No.</th><th>Type</th><th>Party</th><th>Narration</th><th class="n">Amount</th></tr></thead><tbody>${rows.map(v => `<tr class="click" onclick="showVoucher(${v.id})"><td>${esc(v.vdate)}</td><td>${esc(v.voucher_no)}</td><td>${VT[v.vtype]}</td><td>${esc(v.party)}</td><td>${esc(v.narration)}</td><td class="n">${fmt(v.amount)}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No vouchers found</td></tr>'}</tbody></table></div>${total > VPS ? `<div class="row noprint" style="margin-top:10px;align-items:center"><span class="muted">Showing ${VPG * VPS + 1}–${VPG * VPS + rows.length} of ${total} vouchers</span><button class="btn ghost sm" id="vpp" ${VPG ? '' : 'disabled'}>‹ Newer</button><span class="muted">Page ${VPG + 1} of ${pages}</span><button class="btn ghost sm" id="vpn" ${VPG + 1 < pages ? '' : 'disabled'}>Older ›</button></div>` : ''}`;
+    if ($('#vpp')) $('#vpp').onclick = () => { VPG--; run(true); };
+    if ($('#vpn')) $('#vpn').onclick = () => { VPG++; run(true); };
   };
   $('#fpr').onclick = () => pvFromEl('#vl', 'VOUCHER LIST', [VF.from && 'From ' + fdate(VF.from), VF.to && 'To ' + fdate(VF.to), VF.type && VT[VF.type], VF.q && '“' + VF.q + '”'].filter(Boolean).join(' · ') || 'All vouchers');
-  $('#fgo').onclick = run; $('#f4').onkeydown = e => { if (e.key === 'Enter') run(); }; run();
+  $('#fgo').onclick = () => run(); $('#f4').onkeydown = e => { if (e.key === 'Enter') run(); }; run();
 }
 async function showVoucher(id) {
   const v = await api('/api/vouchers/' + id);
